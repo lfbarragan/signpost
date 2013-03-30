@@ -11,16 +11,21 @@
 package oauth.signpost.commonshttp;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import oauth.signpost.AbstractOAuthProvider;
 import oauth.signpost.http.HttpRequest;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
 
 /**
  * This implementation uses the Apache Commons {@link HttpClient} 4.x HTTP
@@ -54,8 +59,17 @@ public class CommonsHttpOAuthProvider extends AbstractOAuthProvider {
     }
 
     @Override
-    protected HttpRequest createRequest(String endpointUrl) throws Exception {
+    protected HttpRequest createRequest(String endpointUrl, String[] customParams) throws Exception {
         HttpPost request = new HttpPost(endpointUrl);
+        if(customParams != null){
+	        List<NameValuePair> params = new ArrayList<NameValuePair>();
+	        
+	        for (int i = 0; i < customParams.length - 1; i += 2) {
+	            params.add(new BasicNameValuePair(customParams[i], customParams[i + 1]));
+	        }
+			
+			request.setEntity(new UrlEncodedFormEntity(params));
+        }
         return new HttpRequestAdapter(request);
     }
 

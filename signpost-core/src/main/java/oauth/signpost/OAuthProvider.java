@@ -132,6 +132,56 @@ public interface OAuthProvider extends Serializable {
             OAuthCommunicationException;
 
     /**
+     * Queries the service provider for a request token.
+     * <p>
+     * <b>Pre-conditions:</b> the given {@link OAuthConsumer} must have a valid
+     * consumer key and consumer secret already set.
+     * </p>
+     * <p>
+     * <b>Post-conditions:</b> the given {@link OAuthConsumer} will have an
+     * unauthorized request token and token secret set.
+     * </p>
+     * 
+     * @param consumer
+     *        the {@link OAuthConsumer} that should be used to sign the request
+     * @param callbackUrl
+     *        Pass an actual URL if your app can receive callbacks and you want
+     *        to get informed about the result of the authorization process.
+     *        Pass {@link OAuth.OUT_OF_BAND} if the service provider implements
+     *        OAuth 1.0a and your app cannot receive callbacks. Pass null if the
+     *        service provider implements OAuth 1.0 and your app cannot receive
+     *        callbacks. Please note that some services (among them Twitter)
+     *        will fail authorization if you pass a callback URL but register
+     *        your application as a desktop app (which would only be able to
+     *        handle OOB requests).
+     * @param customOAuthParams
+     *        you can pass custom OAuth parameters here which will go directly
+     *        into the signer, i.e. you don't have to put them into the request
+     *        first. This is useful for pre-setting OAuth params for signing.
+     *        Pass them sequentially in key/value order.
+     * @param customParams
+     * 		  you can pass custom parameters, these will be included in the 
+     * 		  request body
+     * @return The URL to which the user must be sent in order to authorize the
+     *         consumer. It includes the unauthorized request token (and in the
+     *         case of OAuth 1.0, the callback URL -- 1.0a clients send along
+     *         with the token request).
+     * @throws OAuthMessageSignerException
+     *         if signing the request failed
+     * @throws OAuthNotAuthorizedException
+     *         if the service provider rejected the consumer
+     * @throws OAuthExpectationFailedException
+     *         if required parameters were not correctly set by the consumer or
+     *         service provider
+     * @throws OAuthCommunicationException
+     *         if server communication failed
+     */
+    public String retrieveRequestToken(OAuthConsumer consumer, String callbackUrl,
+            String[] customOAuthParams, String[] customParams) throws OAuthMessageSignerException,
+            OAuthNotAuthorizedException, OAuthExpectationFailedException,
+            OAuthCommunicationException;
+
+    /**
      * Queries the service provider for an access token.
      * <p>
      * <b>Pre-conditions:</b> the given {@link OAuthConsumer} must have a valid

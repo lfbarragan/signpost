@@ -88,6 +88,46 @@ public abstract class AbstractOAuthProvider implements OAuthProvider {
         }
     }
 
+    public synchronized String retrieveRequestToken(OAuthConsumer consumer, String callbackUrl,
+            String[] customOAuthParams, String[] customBodyParams) throws OAuthMessageSignerException,
+            OAuthNotAuthorizedException, OAuthExpectationFailedException,
+            OAuthCommunicationException {
+    	String result = null;
+
+        // invalidate current credentials, if any
+        consumer.setTokenWithSecret(null, null);
+
+        // 1.0a expects the callback to be sent while getting the request token.
+        // 1.0 service providers would simply ignore this parameter.
+        HttpParameters params = new HttpParameters();
+        params.putAll(customOAuthParams, true);
+        params.put(OAuth.OAUTH_CALLBACK, callbackUrl, true);
+
+		try {
+			HttpRequest request = createRequest(requestTokenEndpointUrl, customBodyParams);
+			
+			retrieveToken(consumer, requestTokenEndpointUrl, params, request);
+
+	        String callbackConfirmed = responseParameters.getFirst(OAuth.OAUTH_CALLBACK_CONFIRMED);
+	        responseParameters.remove(OAuth.OAUTH_CALLBACK_CONFIRMED);
+	        isOAuth10a = Boolean.TRUE.toString().equals(callbackConfirmed);
+
+	        // 1.0 service providers expect the callback as part of the auth URL,
+	        // Do not send when 1.0a.
+	        if (isOAuth10a) {
+	            result = OAuth.addQueryParameters(authorizationWebsiteUrl, OAuth.OAUTH_TOKEN,
+	                consumer.getToken());
+	        } else {
+	        	result = OAuth.addQueryParameters(authorizationWebsiteUrl, OAuth.OAUTH_TOKEN,
+	                consumer.getToken(), OAuth.OAUTH_CALLBACK, callbackUrl);
+	        }
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+		return result;
+    }
+
     public synchronized void retrieveAccessToken(OAuthConsumer consumer, String oauthVerifier,
             String... customOAuthParams) throws OAuthMessageSignerException,
             OAuthNotAuthorizedException, OAuthExpectationFailedException,
@@ -151,78 +191,7 @@ public abstract class AbstractOAuthProvider implements OAuthProvider {
             HttpParameters customOAuthParams) throws OAuthMessageSignerException,
             OAuthCommunicationException, OAuthNotAuthorizedException,
             OAuthExpectationFailedException {
-        Map<String, String> defaultHeaders = getRequestHeaders();
-
-        if (consumer.getConsumerKey() == null || consumer.getConsumerSecret() == null) {
-            throw new OAuthExpectationFailedException("Consumer key or secret not set");
-        }
-
-        HttpRequest request = null;
-        HttpResponse response = null;
-        try {
-            request = createRequest(endpointUrl);
-            for (String header : defaultHeaders.keySet()) {
-                request.setHeader(header, defaultHeaders.get(header));
-            }
-            if (customOAuthParams != null && !customOAuthParams.isEmpty()) {
-                consumer.setAdditionalParameters(customOAuthParams);
-            }
-            
-            if (this.listener != null) {
-                this.listener.prepareRequest(request);
-            }
-
-            consumer.sign(request);
-            
-            if (this.listener != null) {
-                this.listener.prepareSubmission(request);
-            }
-
-            response = sendRequest(request);
-            int statusCode = response.getStatusCode();
-
-            boolean requestHandled = false;
-            if (this.listener != null) {
-                requestHandled = this.listener.onResponseReceived(request, response);
-            }
-            if (requestHandled) {
-                return;
-            }
-
-            if (statusCode >= 300) {
-                handleUnexpectedResponse(statusCode, response);
-            }
-
-            HttpParameters responseParams = OAuth.decodeForm(response.getContent());
-
-            String token = responseParams.getFirst(OAuth.OAUTH_TOKEN);
-            String secret = responseParams.getFirst(OAuth.OAUTH_TOKEN_SECRET);
-            responseParams.remove(OAuth.OAUTH_TOKEN);
-            responseParams.remove(OAuth.OAUTH_TOKEN_SECRET);
-
-            setResponseParameters(responseParams);
-
-            if (token == null || secret == null) {
-                throw new OAuthExpectationFailedException(
-                        "Request token or token secret not set in server reply. "
-                                + "The service provider you use is probably buggy.");
-            }
-
-            consumer.setTokenWithSecret(token, secret);
-
-        } catch (OAuthNotAuthorizedException e) {
-            throw e;
-        } catch (OAuthExpectationFailedException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new OAuthCommunicationException(e);
-        } finally {
-            try {
-                closeConnection(request, response);
-            } catch (Exception e) {
-                throw new OAuthCommunicationException(e);
-            }
-        }
+    	retrieveToken(consumer, endpointUrl, customOAuthParams, null);
     }
 
     protected void handleUnexpectedResponse(int statusCode, HttpResponse response) throws Exception {
@@ -253,11 +222,13 @@ public abstract class AbstractOAuthProvider implements OAuthProvider {
      * 
      * @param endpointUrl
      *        the URL to which the request will go
+     * @param customBodyParams
+     * 		  key value list of parameters to be included in the body. This is only used with CommonsHttpOAuthProvider
      * @return the request object
      * @throws Exception
      *         if something breaks
      */
-    protected abstract HttpRequest createRequest(String endpointUrl) throws Exception;
+    protected abstract HttpRequest createRequest(String endpointUrl, String[] customBodyParams) throws Exception;
 
     /**
      * Override this method if you want to customize the logic for how the given
@@ -342,4 +313,89 @@ public abstract class AbstractOAuthProvider implements OAuthProvider {
     public void removeListener(OAuthProviderListener listener) {
         this.listener = null;
     }
+
+    private void retrieveToken(OAuthConsumer consumer, String endpointUrl,
+            HttpParameters customOAuthParams, HttpRequest request) throws OAuthMessageSignerException,
+            OAuthCommunicationException, OAuthNotAuthorizedException,
+            OAuthExpectationFailedException {
+        Map<String, String> defaultHeaders = getRequestHeaders();
+
+        if (consumer.getConsumerKey() == null || consumer.getConsumerSecret() == null) {
+            throw new OAuthExpectationFailedException("Consumer key or secret not set");
+        }
+
+        HttpResponse response = null;
+        try {
+        	if (request == null){
+        		request = createRequest(endpointUrl, null);
+        	}
+
+            for (String header : defaultHeaders.keySet()) {
+                request.setHeader(header, defaultHeaders.get(header));
+            }
+            if (customOAuthParams != null && !customOAuthParams.isEmpty()) {
+                consumer.setAdditionalParameters(customOAuthParams);
+            }
+            
+            if (this.listener != null) {
+                this.listener.prepareRequest(request);
+            }
+
+            consumer.sign(request);
+            
+            if (this.listener != null) {
+                this.listener.prepareSubmission(request);
+            }
+
+            response = sendRequest(request);
+            int statusCode = response.getStatusCode();
+
+            boolean requestHandled = false;
+            if (this.listener != null) {
+                requestHandled = this.listener.onResponseReceived(request, response);
+            }
+            if (requestHandled) {
+                return;
+            }
+
+            if (statusCode >= 300) {
+                handleUnexpectedResponse(statusCode, response);
+            }
+
+            HttpParameters responseParams = OAuth.decodeForm(response.getContent());
+
+            String token = responseParams.getFirst(OAuth.OAUTH_TOKEN);
+            String secret = responseParams.getFirst(OAuth.OAUTH_TOKEN_SECRET);
+            responseParams.remove(OAuth.OAUTH_TOKEN);
+            responseParams.remove(OAuth.OAUTH_TOKEN_SECRET);
+
+            setResponseParameters(responseParams);
+
+            if (token == null || secret == null) {
+                throw new OAuthExpectationFailedException(
+                        "Request token or token secret not set in server reply. "
+                                + "The service provider you use is probably buggy.");
+            }
+
+            consumer.setTokenWithSecret(token, secret);
+
+        } catch (OAuthNotAuthorizedException e) {
+            throw e;
+        } catch (OAuthExpectationFailedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OAuthCommunicationException(e);
+        } finally {
+            try {
+                closeConnection(request, response);
+            } catch (Exception e) {
+                throw new OAuthCommunicationException(e);
+            }
+        }
+    }
+
+	protected HttpRequest createRequest(String endpointUrl) throws Exception {
+		// TODO Auto-generated method stub
+		return null;
+	}    
 }
